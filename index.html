@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Document Summarizer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            max-width: 800px;
+            width: 100%;
+            backdrop-filter: blur(10px);
+        }
+
+        .file-upload {
+            border: 2px dashed #667eea;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .file-upload:hover {
+            background: #f0f4ff;
+        }
+
+        .file-upload input[type="file"] {
+            display: none;
+        }
+
+        .summary-output {
+            width: 100%;
+            min-height: 200px;
+            padding: 15px;
+            margin: 20px 0;
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            font-family: inherit;
+            resize: vertical;
+            display: none;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            display: none;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            margin: 20px auto;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        .loading-text {
+            color: #667eea;
+            font-weight: 600;
+            margin-top: 15px;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 16px 32px;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            width: 100%;
+            transition: all 0.3s ease;
+            margin-top: 20px;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .file-info {
+            margin-top: 10px;
+            color: #4b5563;
+        }
+
+        #error-message {
+            color: #ef4444;
+            margin-top: 10px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2 style="margin-bottom: 20px;">Document Summarizer</h2>
+        
+        <div class="file-upload" id="upload-area">
+            <label for="file-input">
+                <div>
+                    <p>Drop your PDF or Word document here</p>
+                    <p>or click to browse</p>
+                </div>
+            </label>
+            <input type="file" id="file-input" accept=".pdf,.doc,.docx" />
+        </div>
+
+        <div id="file-info" class="file-info"></div>
+        <div id="error-message"></div>
+
+        <textarea class="summary-output" id="summary-output" readonly></textarea>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <div class="loading-text">Processing document...</div>
+        </div>
+
+        <button id="summarize-btn" style="display: none;">Summarize Document</button>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        // Replace with your OpenAI API key
+        const OPENAI_API_KEY = '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';
+        
+        const fileInput = document.getElementById('file-input');
+        const uploadArea = document.getElementById('upload-area');
+        const fileInfo = document.getElementById('file-info');
+        const errorMessage = document.getElementById('error-message');
+        const summarizeBtn = document.getElementById('summarize-btn');
+        const loadingDiv = document.getElementById('loading');
+        const summaryOutput = document.getElementById('summary-output');
+
+        let fileContent = '';
+
+        // Initialize PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        // Drag and drop handlers
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.style.borderColor = '#764ba2';
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.style.borderColor = '#667eea';
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.style.borderColor = '#667eea';
+            const file = e.dataTransfer.files[0];
+            handleFile(file);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            handleFile(file);
+        });
+
+        async function handleFile(file) {
+            if (!file) return;
+
+            const validTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+            if (!validTypes.includes(file.type)) {
+                showError('Please upload a PDF or Word document.');
+                return;
+            }
+
+            fileInfo.textContent = `Selected file: ${file.name}`;
+            errorMessage.style.display = 'none';
+            summarizeBtn.style.display = 'block';
+            
+            try {
+                if (file.type === 'application/pdf') {
+                    fileContent = await extractPdfText(file);
+                } else {
+                    // For Word documents, you'll need to implement a server-side solution
+                    // or use a different library as Word processing in browser is limited
+                    showError('Word document processing is currently not supported in this demo.');
+                    return;
+                }
+            } catch (error) {
+                showError('Error processing file. Please try again.');
+                console.error(error);
+            }
+        }
+
+        async function extractPdfText(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            let text = '';
+
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const content = await page.getTextContent();
+                text += content.items.map(item => item.str).join(' ') + '\n';
+            }
+
+            return text;
+        }
+
+        async function summarizeDocument() {
+            if (!fileContent) {
+                showError('Please upload a document first.');
+                return;
+            }
+
+            loadingDiv.style.display = 'block';
+            summarizeBtn.style.display = 'none';
+            summaryOutput.style.display = 'none';
+
+            try {
+                const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${OPENAI_API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        model: "gpt-4o-mini",
+                        messages: [
+                            {
+                                role: "system",
+                                content: `As a professional document summarizer, follow these guidelines:
+                                        1. Begin with a brief overview of the document's main topic
+                                        2. Identify and list key points in bullet format
+                                        3. Highlight important conclusions or recommendations
+                                        4. Structure the summary in clear sections: Overview, Key Points, Details, Conclusions
+                                        5. Maintain technical accuracy while making complex information accessible
+                                        6. Keep the summary concise but comprehensive
+                                        7. Do not use markdown like ### or italic or bold, whenever is a title, just write in all uppercase`
+                            },
+                            {
+                                role: "user",
+                                content: `Please summarize the following document: ${fileContent}`
+                            }
+                        ],
+                        temperature: 0.7,
+                        max_tokens: 1000
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to generate summary');
+                }
+
+                const data = await response.json();
+                summaryOutput.value = data.choices[0].message.content;
+                summaryOutput.style.display = 'block';
+            } catch (error) {
+                showError('Error generating summary. Please try again.');
+                console.error(error);
+            } finally {
+                loadingDiv.style.display = 'none';
+                summarizeBtn.style.display = 'block';
+            }
+        }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+        }
+
+        summarizeBtn.addEventListener('click', summarizeDocument);
+    </script>
+</body>
+</html>
